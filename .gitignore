@@ -1,0 +1,15 @@
+.worktrees/
+package/
+node_modules/
+dist/
+coverage/
+*.log
+
+# macOS
+.DS_Store
+
+# Temporary files
+commit_message.txt
+*-report.txt
+lint-report.txt
+final-lint-report.txt

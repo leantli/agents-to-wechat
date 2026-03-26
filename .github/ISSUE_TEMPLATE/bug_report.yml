@@ -1,0 +1,79 @@
+name: Bug Report
+description: 报告一个 bug
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你花时间填写这个 bug 报告!
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么?
+      description: 简要描述你遇到的问题
+      placeholder: 告诉我们你看到了什么!
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你期望发生什么?
+      placeholder: 你认为应该怎样?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 如何复现这个问题?
+      placeholder: |
+        1. 运行 '...'
+        2. 执行 '...'
+        3. 看到错误
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: agent-to-wechat 版本
+      description: 运行 `npm list agent-to-wechat` 查看版本
+      placeholder: "0.1.0-alpha"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js 版本
+      description: 运行 `node --version` 查看版本
+      placeholder: "v22.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: 操作系统
+      description: 你使用的操作系统
+      placeholder: "macOS 14.0, Ubuntu 22.04, Windows 11"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: 请粘贴 ~/.agent-to-wechat/agent-to-wechat.log 中的相关日志
+      render: shell
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 其他信息
+      description: 其他可能有帮助的信息
