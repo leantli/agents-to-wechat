@@ -306,6 +306,635 @@ describe('CodexAcpAdapter', () => {
     })
   })
 
+  it('lists resumable sessions when /resume is requested', async () => {
+    const fake = createFakeAcpTransport(async (message) => {
+      if (message.method === 'initialize') {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: {
+            loadSession: true,
+            promptCapabilities: {
+              image: true,
+              audio: false,
+              embeddedContext: true,
+            },
+            mcpCapabilities: {
+              http: true,
+              sse: false,
+            },
+            sessionCapabilities: {
+              list: {},
+              close: {},
+            },
+          },
+          authMethods: [],
+          agentInfo: {
+            name: 'codex-acp',
+            version: '0.10.0',
+          },
+        }
+      }
+
+      if (message.method === 'session/new') {
+        return {
+          sessionId: 'sess-current',
+        }
+      }
+
+      if (message.method === 'session/list') {
+        return {
+          sessions: [
+            {
+              sessionId: 'sess-current',
+              cwd: '/repo',
+              title: 'current placeholder',
+              updatedAt: '2026-03-27T03:34:21Z',
+            },
+            {
+              sessionId: 'sess-previous',
+              cwd: '/repo',
+              title: 'previous task',
+              updatedAt: '2026-03-26T11:20:30Z',
+            },
+          ],
+        }
+      }
+
+      throw new Error(`Unexpected ACP method: ${message.method}`)
+    })
+
+    const adapter = new CodexAcpAdapter({
+      cwd: '/repo',
+      transportFactory: fake.createTransport,
+    })
+
+    const sessionId = await adapter.createSession('u1')
+
+    await expect(adapter.executeNativeCommand(sessionId, '/resume')).resolves.toEqual({
+      logContext: {
+        commandAction: 'list_resumable_sessions',
+        commandName: '/resume',
+      },
+      status: 'completed',
+      text: [
+        '当前会话：',
+        '[sess-current] current placeholder (2026-03-27T03:34:21Z)',
+        '可恢复的其他会话：',
+        '1. [sess-previous] previous task (2026-03-26T11:20:30Z)',
+        '发送 /resume <编号> 来恢复指定会话。',
+      ].join('\n'),
+    })
+
+    expect(fake.controller.requests.map((message) => message.method)).toEqual([
+      'initialize',
+      'session/new',
+      'session/list',
+    ])
+  })
+
+  it('lists recoverable sessions when /resume list is requested', async () => {
+    const fake = createFakeAcpTransport(async (message) => {
+      if (message.method === 'initialize') {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: {
+            loadSession: true,
+            promptCapabilities: {
+              image: true,
+              audio: false,
+              embeddedContext: true,
+            },
+            mcpCapabilities: {
+              http: true,
+              sse: false,
+            },
+            sessionCapabilities: {
+              list: {},
+              close: {},
+            },
+          },
+          authMethods: [],
+          agentInfo: {
+            name: 'codex-acp',
+            version: '0.10.0',
+          },
+        }
+      }
+
+      if (message.method === 'session/new') {
+        return {
+          sessionId: 'sess-current',
+        }
+      }
+
+      if (message.method === 'session/list') {
+        return {
+          sessions: [
+            {
+              sessionId: 'sess-current',
+              cwd: '/repo',
+              title: 'current placeholder',
+              updatedAt: '2026-03-27T03:34:21Z',
+            },
+            {
+              sessionId: 'sess-second',
+              cwd: '/repo',
+              title: 'second task',
+              updatedAt: '2026-03-27T01:00:00Z',
+            },
+            {
+              sessionId: 'sess-first',
+              cwd: '/repo',
+              title: 'first task',
+              updatedAt: '2026-03-26T11:20:30Z',
+            },
+          ],
+        }
+      }
+
+      throw new Error(`Unexpected ACP method: ${message.method}`)
+    })
+
+    const adapter = new CodexAcpAdapter({
+      cwd: '/repo',
+      transportFactory: fake.createTransport,
+    })
+
+    const sessionId = await adapter.createSession('u1')
+
+    await expect(adapter.executeNativeCommand(sessionId, '/resume list')).resolves.toEqual({
+      logContext: {
+        commandAction: 'list_resumable_sessions',
+        commandName: '/resume',
+      },
+      status: 'completed',
+      text: [
+        '当前会话：',
+        '[sess-current] current placeholder (2026-03-27T03:34:21Z)',
+        '可恢复的其他会话：',
+        '1. [sess-second] second task (2026-03-27T01:00:00Z)',
+        '2. [sess-first] first task (2026-03-26T11:20:30Z)',
+        '发送 /resume <编号> 来恢复指定会话。',
+      ].join('\n'),
+    })
+
+    expect(fake.controller.requests.map((message) => message.method)).toEqual([
+      'initialize',
+      'session/new',
+      'session/list',
+    ])
+  })
+
+  it('loads a specific session by list index when /resume includes a number', async () => {
+    const fake = createFakeAcpTransport(async (message, controller) => {
+      if (message.method === 'initialize') {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: {
+            loadSession: true,
+            promptCapabilities: {
+              image: true,
+              audio: false,
+              embeddedContext: true,
+            },
+            mcpCapabilities: {
+              http: true,
+              sse: false,
+            },
+            sessionCapabilities: {
+              list: {},
+              close: {},
+            },
+          },
+          authMethods: [],
+          agentInfo: {
+            name: 'codex-acp',
+            version: '0.10.0',
+          },
+        }
+      }
+
+      if (message.method === 'session/new') {
+        return {
+          sessionId: 'sess-current',
+        }
+      }
+
+      if (message.method === 'session/list') {
+        return {
+          sessions: [
+            {
+              sessionId: 'sess-current',
+              cwd: '/repo',
+              title: 'current placeholder',
+              updatedAt: '2026-03-27T03:34:21Z',
+            },
+            {
+              sessionId: 'sess-second',
+              cwd: '/repo',
+              title: 'second task',
+              updatedAt: '2026-03-27T01:00:00Z',
+            },
+            {
+              sessionId: 'sess-first',
+              cwd: '/repo',
+              title: 'first task',
+              updatedAt: '2026-03-26T11:20:30Z',
+            },
+          ],
+        }
+      }
+
+      if (message.method === 'session/load') {
+        controller.emitEvent({
+          jsonrpc: '2.0',
+          method: 'session/update',
+          params: {
+            sessionId: 'sess-first',
+            update: {
+              sessionUpdate: 'available_commands_update',
+              availableCommands: [],
+            },
+          },
+        })
+        return {}
+      }
+
+      if (message.method === 'session/prompt') {
+        controller.emitEvent({
+          jsonrpc: '2.0',
+          method: 'session/update',
+          params: {
+            sessionId: 'sess-first',
+            update: {
+              sessionUpdate: 'agent_message_chunk',
+              content: {
+                type: 'text',
+                text: 'continued on resumed session',
+              },
+            },
+          },
+        })
+        return {
+          stopReason: 'end_turn',
+        }
+      }
+
+      throw new Error(`Unexpected ACP method: ${message.method}`)
+    })
+
+    const adapter = new CodexAcpAdapter({
+      cwd: '/repo',
+      transportFactory: fake.createTransport,
+    })
+
+    const sessionId = await adapter.createSession('u1')
+
+    await expect(adapter.executeNativeCommand(sessionId, '/resume 2')).resolves.toEqual({
+      logContext: {
+        commandAction: 'resume_session',
+        commandName: '/resume',
+      },
+      status: 'completed',
+      text: '已恢复会话：first task',
+    })
+
+    await expect(adapter.sendPrompt(sessionId, 'continue')).resolves.toBe(
+      'continued on resumed session'
+    )
+
+    expect(fake.controller.requests.map((message) => message.method)).toEqual([
+      'initialize',
+      'session/new',
+      'session/list',
+      'session/load',
+      'session/prompt',
+    ])
+    expect(fake.controller.requests[3]).toMatchObject({
+      method: 'session/load',
+      params: {
+        cwd: '/repo',
+        mcpServers: [],
+        sessionId: 'sess-first',
+      },
+    })
+    expect(fake.controller.requests[4]).toMatchObject({
+      method: 'session/prompt',
+      params: {
+        sessionId: 'sess-first',
+      },
+    })
+  })
+
+  it('rejects non-index selectors when /resume includes a selector', async () => {
+    const fake = createFakeAcpTransport(async (message) => {
+      if (message.method === 'initialize') {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: {
+            loadSession: true,
+            promptCapabilities: {
+              image: true,
+              audio: false,
+              embeddedContext: true,
+            },
+            mcpCapabilities: {
+              http: true,
+              sse: false,
+            },
+            sessionCapabilities: {
+              list: {},
+              close: {},
+            },
+          },
+          authMethods: [],
+          agentInfo: {
+            name: 'codex-acp',
+            version: '0.10.0',
+          },
+        }
+      }
+
+      if (message.method === 'session/new') {
+        return {
+          sessionId: 'sess-current',
+        }
+      }
+
+      if (message.method === 'session/list') {
+        return {
+          sessions: [
+            {
+              sessionId: 'sess-current',
+              cwd: '/repo',
+              title: 'current placeholder',
+              updatedAt: '2026-03-27T03:34:21Z',
+            },
+            {
+              sessionId: 'abc-older',
+              cwd: '/repo',
+              title: 'older task',
+              updatedAt: '2026-03-26T11:20:30Z',
+            },
+            {
+              sessionId: 'xyz-target',
+              cwd: '/repo',
+              title: 'target task',
+              updatedAt: '2026-03-27T01:00:00Z',
+            },
+          ],
+        }
+      }
+
+      throw new Error(`Unexpected ACP method: ${message.method}`)
+    })
+
+    const adapter = new CodexAcpAdapter({
+      cwd: '/repo',
+      transportFactory: fake.createTransport,
+    })
+
+    const sessionId = await adapter.createSession('u1')
+
+    await expect(adapter.executeNativeCommand(sessionId, '/resume xyz-')).resolves.toEqual({
+      logContext: {
+        commandAction: 'resume_session',
+        commandName: '/resume',
+      },
+      status: 'completed',
+      text: '只支持 /resume、/resume list 和 /resume <编号>。',
+    })
+
+    expect(fake.controller.requests.map((message) => message.method)).toEqual([
+      'initialize',
+      'session/new',
+    ])
+  })
+
+  it('shows the current session when /resume has no other history', async () => {
+    const fake = createFakeAcpTransport(async (message) => {
+      if (message.method === 'initialize') {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: {
+            loadSession: true,
+            promptCapabilities: {
+              image: true,
+              audio: false,
+              embeddedContext: true,
+            },
+            mcpCapabilities: {
+              http: true,
+              sse: false,
+            },
+            sessionCapabilities: {
+              list: {},
+              close: {},
+            },
+          },
+          authMethods: [],
+          agentInfo: {
+            name: 'codex-acp',
+            version: '0.10.0',
+          },
+        }
+      }
+
+      if (message.method === 'session/new') {
+        return {
+          sessionId: 'sess-current',
+        }
+      }
+
+      if (message.method === 'session/list') {
+        return {
+          sessions: [
+            {
+              sessionId: 'sess-current',
+              cwd: '/repo',
+              title: 'current placeholder',
+              updatedAt: '2026-03-27T03:34:21Z',
+            },
+          ],
+        }
+      }
+
+      throw new Error(`Unexpected ACP method: ${message.method}`)
+    })
+
+    const adapter = new CodexAcpAdapter({
+      cwd: '/repo',
+      transportFactory: fake.createTransport,
+    })
+
+    const sessionId = await adapter.createSession('u1')
+
+    await expect(adapter.executeNativeCommand(sessionId, '/resume')).resolves.toEqual({
+      logContext: {
+        commandAction: 'list_resumable_sessions',
+        commandName: '/resume',
+      },
+      status: 'completed',
+      text: [
+        '当前会话：',
+        '[sess-current] current placeholder (2026-03-27T03:34:21Z)',
+        '没有其他可恢复的历史会话。',
+      ].join('\n'),
+    })
+
+    expect(fake.controller.requests.map((message) => message.method)).toEqual([
+      'initialize',
+      'session/new',
+      'session/list',
+    ])
+  })
+
+  it('lists resumable sessions even when loading historical sessions is unsupported', async () => {
+    const fake = createFakeAcpTransport(async (message) => {
+      if (message.method === 'initialize') {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: {
+            loadSession: false,
+            promptCapabilities: {
+              image: true,
+              audio: false,
+              embeddedContext: true,
+            },
+            mcpCapabilities: {
+              http: true,
+              sse: false,
+            },
+            sessionCapabilities: {
+              list: {},
+              close: {},
+            },
+          },
+          authMethods: [],
+          agentInfo: {
+            name: 'codex-acp',
+            version: '0.10.0',
+          },
+        }
+      }
+
+      if (message.method === 'session/new') {
+        return {
+          sessionId: 'sess-current',
+        }
+      }
+
+      if (message.method === 'session/list') {
+        return {
+          sessions: [
+            {
+              sessionId: 'sess-current',
+              cwd: '/repo',
+              title: 'current placeholder',
+              updatedAt: '2026-03-27T03:34:21Z',
+            },
+            {
+              sessionId: 'sess-previous',
+              cwd: '/repo',
+              title: 'previous task',
+              updatedAt: '2026-03-26T11:20:30Z',
+            },
+          ],
+        }
+      }
+
+      throw new Error(`Unexpected ACP method: ${message.method}`)
+    })
+
+    const adapter = new CodexAcpAdapter({
+      cwd: '/repo',
+      transportFactory: fake.createTransport,
+    })
+
+    const sessionId = await adapter.createSession('u1')
+
+    await expect(adapter.executeNativeCommand(sessionId, '/resume')).resolves.toEqual({
+      logContext: {
+        commandAction: 'list_resumable_sessions',
+        commandName: '/resume',
+      },
+      status: 'completed',
+      text: [
+        '当前会话：',
+        '[sess-current] current placeholder (2026-03-27T03:34:21Z)',
+        '可恢复的其他会话：',
+        '1. [sess-previous] previous task (2026-03-26T11:20:30Z)',
+        '发送 /resume <编号> 来恢复指定会话。',
+      ].join('\n'),
+    })
+
+    expect(fake.controller.requests.map((message) => message.method)).toEqual([
+      'initialize',
+      'session/new',
+      'session/list',
+    ])
+  })
+
+  it('reports when restoring historical sessions is unsupported', async () => {
+    const fake = createFakeAcpTransport(async (message) => {
+      if (message.method === 'initialize') {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: {
+            loadSession: false,
+            promptCapabilities: {
+              image: true,
+              audio: false,
+              embeddedContext: true,
+            },
+            mcpCapabilities: {
+              http: true,
+              sse: false,
+            },
+            sessionCapabilities: {
+              list: {},
+              close: {},
+            },
+          },
+          authMethods: [],
+          agentInfo: {
+            name: 'codex-acp',
+            version: '0.10.0',
+          },
+        }
+      }
+
+      if (message.method === 'session/new') {
+        return {
+          sessionId: 'sess-current',
+        }
+      }
+
+      throw new Error(`Unexpected ACP method: ${message.method}`)
+    })
+
+    const adapter = new CodexAcpAdapter({
+      cwd: '/repo',
+      transportFactory: fake.createTransport,
+    })
+
+    const sessionId = await adapter.createSession('u1')
+
+    await expect(adapter.executeNativeCommand(sessionId, '/resume 1')).resolves.toEqual({
+      logContext: {
+        commandAction: 'resume_session',
+        commandName: '/resume',
+      },
+      status: 'completed',
+      text: '当前 agent 仅支持查看历史会话列表，暂不支持恢复会话。',
+    })
+
+    expect(fake.controller.requests.map((message) => message.method)).toEqual([
+      'initialize',
+      'session/new',
+    ])
+  })
+
   it('forwards unknown slash commands even when they are absent from the advertised command list', async () => {
     const fake = createFakeAcpTransport(async (message, controller) => {
       if (message.method === 'initialize') {
