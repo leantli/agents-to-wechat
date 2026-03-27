@@ -51,9 +51,7 @@ interface AgentCapabilitiesState {
   listSessions: boolean
 }
 
-type ResumeCommand =
-  | { kind: 'list' }
-  | { kind: 'select'; selector: string }
+type ResumeCommand = { kind: 'list' } | { kind: 'select'; selector: string }
 
 const DEFAULT_TURN_TIMEOUT_MS = 10 * 60_000
 const MAX_IGNORED_SESSION_IDS = 256
@@ -682,7 +680,9 @@ export class CodexAcpAdapter implements AgentAdapter {
 
     this.bindLoadedSession(session, targetSession.sessionId, loadResult)
 
-    return this.createResumeCommandResult(`已恢复会话：${targetSession.title ?? targetSession.sessionId}`)
+    return this.createResumeCommandResult(
+      `已恢复会话：${targetSession.title ?? targetSession.sessionId}`
+    )
   }
 
   private createResumeCommandResult(
@@ -713,7 +713,9 @@ export class CodexAcpAdapter implements AgentAdapter {
     currentSession: CodexAcpSession,
     sessions: ListedSession[]
   ): ListedSession | null {
-    return sessions.find((listedSession) => listedSession.sessionId === currentSession.sessionId) ?? null
+    return (
+      sessions.find((listedSession) => listedSession.sessionId === currentSession.sessionId) ?? null
+    )
   }
 
   private listRecoverableSessions(
@@ -733,10 +735,7 @@ export class CodexAcpAdapter implements AgentAdapter {
     return filteredSessions
   }
 
-  private resolveResumeSelector(
-    sessions: ListedSession[],
-    selector: string
-  ): ListedSession | null {
+  private resolveResumeSelector(sessions: ListedSession[], selector: string): ListedSession | null {
     const index = Number(selector)
     if (!Number.isSafeInteger(index) || index <= 0) {
       return null
@@ -745,7 +744,10 @@ export class CodexAcpAdapter implements AgentAdapter {
     return sessions[index - 1] ?? null
   }
 
-  private formatResumeList(currentSession: ListedSession | null, sessions: ListedSession[]): string {
+  private formatResumeList(
+    currentSession: ListedSession | null,
+    sessions: ListedSession[]
+  ): string {
     if (!currentSession && sessions.length === 0) {
       return '没有可恢复的历史会话。'
     }

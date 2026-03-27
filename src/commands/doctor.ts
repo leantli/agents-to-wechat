@@ -46,7 +46,11 @@ function parseNodeVersion(version: string): { major: number; minor: number; patc
   const major = Number(match[1])
   const minor = Number(match[2])
   const patch = Number(match[3])
-  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) {
+  if (
+    !Number.isSafeInteger(major) ||
+    !Number.isSafeInteger(minor) ||
+    !Number.isSafeInteger(patch)
+  ) {
     return null
   }
 
