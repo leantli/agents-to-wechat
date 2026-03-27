@@ -37,9 +37,37 @@ export interface RunDoctorInput {
   logger?: Pick<Console, 'log'>
 }
 
-function parseNodeMajor(version: string): number | null {
-  const match = /^v?(\d+)/.exec(version)
-  return match ? Number(match[1]) : null
+function parseNodeVersion(version: string): { major: number; minor: number; patch: number } | null {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(version)
+  if (!match) {
+    return null
+  }
+
+  const major = Number(match[1])
+  const minor = Number(match[2])
+  const patch = Number(match[3])
+  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) {
+    return null
+  }
+
+  return {
+    major,
+    minor,
+    patch,
+  }
+}
+
+function isSupportedNodeVersion(version: string): boolean {
+  const parsed = parseNodeVersion(version)
+  if (!parsed) {
+    return false
+  }
+
+  if (parsed.major === 22) {
+    return parsed.minor >= 12
+  }
+
+  return parsed.major >= 24
 }
 
 function isSavedLoginState(value: unknown): value is SavedLoginState {
@@ -126,12 +154,11 @@ export async function runDoctor(input: RunDoctorInput = {}): Promise<DoctorResul
   const logger = input.logger ?? console
   const issues: DoctorIssue[] = []
   const nodeVersion = input.nodeVersion ?? process.version
-  const major = parseNodeMajor(nodeVersion)
 
-  if (major === null || major < 22) {
+  if (!isSupportedNodeVersion(nodeVersion)) {
     issues.push({
       check: 'node',
-      message: `Node.js 22+ is required, found ${nodeVersion}`,
+      message: `Node.js 22.12+ LTS or 24+ is required, found ${nodeVersion}`,
     })
   }
 

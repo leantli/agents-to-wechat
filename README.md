@@ -58,7 +58,7 @@ agents-to-wechat start
 
 ## 依赖
 
-- Node.js >= 22
+- Node.js 22.12+ LTS 或 24+
 - `codex` 已安装并在 PATH 中可用
 
 ## 故障排除

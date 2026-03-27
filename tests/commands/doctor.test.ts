@@ -31,7 +31,7 @@ describe('runDoctor', () => {
       stateDir: tempDir,
       platform: 'darwin',
       arch: 'arm64',
-      nodeVersion: 'v22.0.0',
+      nodeVersion: 'v22.12.0',
       execInstallImpl,
       validateImpl: vi.fn(async () => undefined),
       projectRoot: EMPTY_PROJECT_ROOT,
@@ -67,7 +67,7 @@ describe('runDoctor', () => {
       stateDir: tempDir,
       platform: 'darwin',
       arch: 'arm64',
-      nodeVersion: 'v22.0.0',
+      nodeVersion: 'v22.12.0',
       execInstallImpl: vi.fn(async () => undefined),
       validateImpl: vi.fn(async () => undefined),
       projectRoot: EMPTY_PROJECT_ROOT,
@@ -107,7 +107,7 @@ describe('runDoctor', () => {
       stateDir: tempDir,
       platform: 'darwin',
       arch: 'arm64',
-      nodeVersion: 'v22.0.0',
+      nodeVersion: 'v22.12.0',
       execInstallImpl: vi.fn(async () => undefined),
       validateImpl: vi.fn(async () => {
         throw new Error('exit code 42')
@@ -149,7 +149,7 @@ describe('runDoctor', () => {
       stateDir: tempDir,
       platform: 'darwin',
       arch: 'arm64',
-      nodeVersion: 'v22.0.0',
+      nodeVersion: 'v22.12.0',
       execInstallImpl: vi.fn(async () => undefined),
       validateImpl: vi.fn(async () => undefined),
       projectRoot: EMPTY_PROJECT_ROOT,
@@ -187,7 +187,7 @@ describe('runDoctor', () => {
       stateDir: tempDir,
       platform: 'darwin',
       arch: 'arm64',
-      nodeVersion: 'v22.0.0',
+      nodeVersion: 'v22.12.0',
       execInstallImpl: vi.fn(async () => undefined),
       validateImpl: vi.fn(async () => undefined),
       projectRoot: EMPTY_PROJECT_ROOT,
@@ -230,7 +230,7 @@ describe('runDoctor', () => {
       stateDir: tempDir,
       platform: 'darwin',
       arch: 'arm64',
-      nodeVersion: 'v22.0.0',
+      nodeVersion: 'v22.12.0',
       execInstallImpl: vi.fn(async () => undefined),
       validateImpl: vi.fn(async () => undefined),
       projectRoot: EMPTY_PROJECT_ROOT,
@@ -267,7 +267,7 @@ describe('runDoctor', () => {
       stateDir: tempDir,
       platform: 'darwin',
       arch: 'arm64',
-      nodeVersion: 'v22.0.0',
+      nodeVersion: 'v22.12.0',
       execInstallImpl: vi.fn(async () => undefined),
       validateImpl: vi.fn(async () => undefined),
       projectRoot: EMPTY_PROJECT_ROOT,
@@ -286,5 +286,44 @@ describe('runDoctor', () => {
 
     expect(result.ok).toBe(true)
     expect(result.issues).toEqual([])
+  })
+
+  it('fails on unsupported Node 23.x even when other checks are healthy', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'agent-to-wechat-'))
+    await mkdir(tempDir, { recursive: true })
+    await writeFile(
+      join(tempDir, 'wechat-auth.json'),
+      JSON.stringify({
+        botToken: 'token',
+        botAccountId: 'bot',
+        baseUrl: 'https://ilinkai.weixin.qq.com',
+      })
+    )
+
+    const result = await runDoctor({
+      stateDir: tempDir,
+      platform: 'darwin',
+      arch: 'arm64',
+      nodeVersion: 'v23.1.0',
+      execInstallImpl: vi.fn(async () => undefined),
+      validateImpl: vi.fn(async () => undefined),
+      projectRoot: EMPTY_PROJECT_ROOT,
+      whichImpl: vi.fn(async (command: string) => {
+        if (command === 'codex') {
+          return '/usr/local/bin/codex'
+        }
+
+        if (command === 'codex-acp') {
+          return '/usr/local/bin/codex-acp'
+        }
+
+        return null
+      }),
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.issues.find((issue) => issue.check === 'node')?.message).toBe(
+      'Node.js 22.12+ LTS or 24+ is required, found v23.1.0'
+    )
   })
 })
