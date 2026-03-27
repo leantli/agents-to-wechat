@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-03-27
+
+### 更新
+
+- 新增 `/resume`，支持在微信里查看并恢复最近的 Codex ACP 历史会话
+- `doctor`、README 和 Node.js 版本约束统一到实际受支持的工具链范围
+
 ## [0.1.0] - 2026-03-24
 
 ### 首次公开发布
@@ -33,3 +40,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Codex ACP 协议
 
 [0.1.0]: https://github.com/leantli/agents-to-wechat/releases/tag/v0.1.0
+[0.1.1]: https://github.com/leantli/agents-to-wechat/releases/tag/v0.1.1

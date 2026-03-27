@@ -16,7 +16,7 @@ describe('release helpers', () => {
     }
 
     expect(() => verifyReleaseTag(`v${pkg.version}`, pkg.version)).not.toThrow()
-    expect(() => verifyReleaseTag('v0.1.1', pkg.version)).toThrow(
+    expect(() => verifyReleaseTag('v999.999.999', pkg.version)).toThrow(
       'does not match package.json version'
     )
   })
