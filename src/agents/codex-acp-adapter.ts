@@ -40,6 +40,19 @@ interface SessionModelState {
   availableModels: SessionModel[]
 }
 
+interface ListedSession {
+  sessionId: string
+  title?: string
+  updatedAt?: string
+}
+
+interface AgentCapabilitiesState {
+  loadSession: boolean
+  listSessions: boolean
+}
+
+type ResumeCommand = { kind: 'list' } | { kind: 'select'; selector: string }
+
 const DEFAULT_TURN_TIMEOUT_MS = 10 * 60_000
 const MAX_IGNORED_SESSION_IDS = 256
 
@@ -84,6 +97,44 @@ function extractModelState(result: unknown): SessionModelState {
     currentModelId,
     availableModels,
   }
+}
+
+function extractAgentCapabilities(result: unknown): AgentCapabilitiesState {
+  if (!isRecord(result) || !isRecord(result.agentCapabilities)) {
+    return {
+      loadSession: false,
+      listSessions: false,
+    }
+  }
+
+  const sessionCapabilities = isRecord(result.agentCapabilities.sessionCapabilities)
+    ? result.agentCapabilities.sessionCapabilities
+    : null
+
+  return {
+    loadSession: result.agentCapabilities.loadSession === true,
+    listSessions: sessionCapabilities !== null && 'list' in sessionCapabilities,
+  }
+}
+
+function extractListedSessions(result: unknown): ListedSession[] {
+  if (!isRecord(result) || !Array.isArray(result.sessions)) {
+    return []
+  }
+
+  return result.sessions.flatMap((entry) => {
+    if (!isRecord(entry) || typeof entry.sessionId !== 'string') {
+      return []
+    }
+
+    return [
+      {
+        sessionId: entry.sessionId,
+        title: typeof entry.title === 'string' ? entry.title : undefined,
+        updatedAt: typeof entry.updatedAt === 'string' ? entry.updatedAt : undefined,
+      } satisfies ListedSession,
+    ]
+  })
 }
 
 function extractSessionUpdateEvent(event: AcpEventMessage): {
@@ -150,6 +201,27 @@ function parseModelCommand(input: string): { target: string | null } | null {
   }
 }
 
+function parseResumeCommand(input: string): ResumeCommand | null {
+  const trimmed = input.trim()
+  if (extractNativeCommandName(trimmed) !== '/resume') {
+    return null
+  }
+
+  const suffix = trimmed.slice('/resume'.length).trim()
+  if (suffix.length === 0) {
+    return { kind: 'list' }
+  }
+
+  if (suffix === 'list') {
+    return { kind: 'list' }
+  }
+
+  return {
+    kind: 'select',
+    selector: suffix,
+  }
+}
+
 function formatModelSummary(state: SessionModelState): string {
   const lines = [`当前模型：${state.currentModelId ?? '未知'}`, '可用模型：']
 
@@ -201,8 +273,13 @@ export class CodexAcpAdapter implements AgentAdapter {
   private readonly peerSessions = new Map<string, string>()
   private readonly pendingPeerSessions = new Map<string, Promise<string>>()
   private readonly sessions = new Map<string, CodexAcpSession>()
+  private readonly sessionAliases = new Map<string, string>()
   private readonly pendingSessionUpdates = new Map<string, Record<string, unknown>[]>()
   private readonly ignoredSessionIds = new Set<string>()
+  private capabilities: AgentCapabilitiesState = {
+    loadSession: false,
+    listSessions: false,
+  }
   private initializePromise: Promise<void> | null = null
   private nextRequestId = 1
 
@@ -260,6 +337,7 @@ export class CodexAcpAdapter implements AgentAdapter {
     if (!session) {
       this.peerSessions.delete(peerId)
       this.pendingSessionUpdates.delete(sessionId)
+      this.dropSessionAliases(sessionId)
       this.rememberIgnoredSessionId(sessionId)
       return
     }
@@ -277,6 +355,11 @@ export class CodexAcpAdapter implements AgentAdapter {
     const modelCommand = parseModelCommand(input)
     if (modelCommand) {
       return await this.handleModelCommand(session, modelCommand.target)
+    }
+
+    const resumeCommand = parseResumeCommand(input)
+    if (resumeCommand) {
+      return await this.handleResumeCommand(session, resumeCommand)
     }
 
     return {
@@ -302,7 +385,9 @@ export class CodexAcpAdapter implements AgentAdapter {
           clientInfo: this.clientInfo,
         },
       })
-      .then(() => undefined)
+      .then((result) => {
+        this.capabilities = extractAgentCapabilities(result)
+      })
 
     this.initializePromise = initializePromise
 
@@ -340,7 +425,8 @@ export class CodexAcpAdapter implements AgentAdapter {
   }
 
   private getSession(sessionId: string): CodexAcpSession {
-    const session = this.sessions.get(sessionId)
+    const resolvedSessionId = this.resolveSessionId(sessionId)
+    const session = this.sessions.get(resolvedSessionId)
     if (!session) {
       throw new Error(`Unknown ACP session: ${sessionId}`)
     }
@@ -536,11 +622,229 @@ export class CodexAcpAdapter implements AgentAdapter {
     }
   }
 
+  private async handleResumeCommand(
+    session: CodexAcpSession,
+    command: ResumeCommand
+  ): Promise<AgentNativeCommandResult> {
+    if (command.kind === 'select' && !/^\d+$/.test(command.selector)) {
+      return this.createResumeCommandResult('只支持 /resume、/resume list 和 /resume <编号>。')
+    }
+
+    if (!this.capabilities.listSessions) {
+      return this.createResumeCommandResult(
+        command.kind === 'select'
+          ? '当前 agent 不支持恢复历史会话。'
+          : '当前 agent 不支持查看历史会话列表。',
+        command.kind === 'select' ? 'resume_session' : 'list_resumable_sessions'
+      )
+    }
+
+    if (command.kind === 'select' && !this.capabilities.loadSession) {
+      return this.createResumeCommandResult('当前 agent 仅支持查看历史会话列表，暂不支持恢复会话。')
+    }
+
+    const listResult = await this.transport.request({
+      id: this.allocateRequestId(),
+      method: 'session/list',
+      params: {
+        cwd: this.options.cwd,
+      },
+    })
+
+    const listedSessions = extractListedSessions(listResult)
+    const currentListedSession = this.findCurrentListedSession(session, listedSessions)
+    const recoverableSessions = this.listRecoverableSessions(session, listedSessions)
+
+    if (command.kind === 'list') {
+      return this.createResumeCommandResult(
+        this.formatResumeList(currentListedSession, recoverableSessions),
+        'list_resumable_sessions'
+      )
+    }
+
+    const targetSession = this.resolveResumeSelector(recoverableSessions, command.selector)
+
+    if (!targetSession) {
+      return this.createResumeCommandResult(`未找到可恢复的会话：${command.selector}`)
+    }
+
+    const loadResult = await this.transport.request({
+      id: this.allocateRequestId(),
+      method: 'session/load',
+      params: {
+        cwd: this.options.cwd,
+        mcpServers: this.options.mcpServers ?? [],
+        sessionId: targetSession.sessionId,
+      },
+    })
+
+    this.bindLoadedSession(session, targetSession.sessionId, loadResult)
+
+    return this.createResumeCommandResult(
+      `已恢复会话：${targetSession.title ?? targetSession.sessionId}`
+    )
+  }
+
+  private createResumeCommandResult(
+    text: string,
+    action: 'resume_session' | 'list_resumable_sessions' = 'resume_session'
+  ): AgentNativeCommandResult {
+    return {
+      status: 'completed',
+      text,
+      logContext: {
+        commandAction: action,
+        commandName: '/resume',
+      },
+    }
+  }
+
   private discardSession(session: CodexAcpSession): void {
-    this.peerSessions.delete(session.peerId)
+    if (this.peerSessions.get(session.peerId) === session.sessionId) {
+      this.peerSessions.delete(session.peerId)
+    }
     this.sessions.delete(session.sessionId)
     this.pendingSessionUpdates.delete(session.sessionId)
+    this.dropSessionAliases(session.sessionId)
     this.rememberIgnoredSessionId(session.sessionId)
+  }
+
+  private findCurrentListedSession(
+    currentSession: CodexAcpSession,
+    sessions: ListedSession[]
+  ): ListedSession | null {
+    return (
+      sessions.find((listedSession) => listedSession.sessionId === currentSession.sessionId) ?? null
+    )
+  }
+
+  private listRecoverableSessions(
+    currentSession: CodexAcpSession,
+    sessions: ListedSession[]
+  ): ListedSession[] {
+    const filteredSessions = sessions.filter(
+      (listedSession) => listedSession.sessionId !== currentSession.sessionId
+    )
+
+    filteredSessions.sort((left, right) => {
+      const leftTime = left.updatedAt ? Date.parse(left.updatedAt) : Number.NEGATIVE_INFINITY
+      const rightTime = right.updatedAt ? Date.parse(right.updatedAt) : Number.NEGATIVE_INFINITY
+      return rightTime - leftTime
+    })
+
+    return filteredSessions
+  }
+
+  private resolveResumeSelector(sessions: ListedSession[], selector: string): ListedSession | null {
+    const index = Number(selector)
+    if (!Number.isSafeInteger(index) || index <= 0) {
+      return null
+    }
+
+    return sessions[index - 1] ?? null
+  }
+
+  private formatResumeList(
+    currentSession: ListedSession | null,
+    sessions: ListedSession[]
+  ): string {
+    if (!currentSession && sessions.length === 0) {
+      return '没有可恢复的历史会话。'
+    }
+
+    const lines: string[] = []
+
+    if (currentSession) {
+      lines.push('当前会话：')
+      lines.push(this.formatSessionListItem(currentSession))
+    }
+
+    if (sessions.length === 0) {
+      lines.push(currentSession ? '没有其他可恢复的历史会话。' : '没有可恢复的历史会话。')
+      return lines.join('\n')
+    }
+
+    lines.push(currentSession ? '可恢复的其他会话：' : '可恢复的历史会话：')
+    for (const [index, session] of sessions.entries()) {
+      const displayIndex = String(index + 1)
+      lines.push(`${displayIndex}. ${this.formatSessionListItem(session)}`)
+    }
+    lines.push('发送 /resume <编号> 来恢复指定会话。')
+    return lines.join('\n')
+  }
+
+  private formatSessionListItem(session: ListedSession): string {
+    const updatedAt = session.updatedAt ?? 'unknown'
+    return `[${session.sessionId}] ${this.describeSession(session)} (${updatedAt})`
+  }
+
+  private describeSession(session: ListedSession): string {
+    return session.title ?? session.sessionId
+  }
+
+  private bindLoadedSession(
+    currentSession: CodexAcpSession,
+    loadedSessionId: string,
+    loadResult: unknown
+  ): void {
+    const existingLoadedSession = this.sessions.get(loadedSessionId)
+    if (existingLoadedSession && existingLoadedSession.peerId !== currentSession.peerId) {
+      throw new Error(`ACP session is already bound to another peer: ${loadedSessionId}`)
+    }
+
+    const loadedSession =
+      existingLoadedSession ??
+      ({
+        peerId: currentSession.peerId,
+        sessionId: loadedSessionId,
+        availableCommands: null,
+        modelState: extractModelState(loadResult),
+        pendingTurn: null,
+      } satisfies CodexAcpSession)
+
+    loadedSession.peerId = currentSession.peerId
+    loadedSession.modelState = extractModelState(loadResult)
+
+    this.sessions.set(loadedSessionId, loadedSession)
+    this.peerSessions.set(currentSession.peerId, loadedSessionId)
+    this.replayPendingSessionUpdates(loadedSessionId)
+
+    if (currentSession.sessionId === loadedSessionId) {
+      return
+    }
+
+    this.sessions.delete(currentSession.sessionId)
+    this.pendingSessionUpdates.delete(currentSession.sessionId)
+    this.dropSessionAliases(currentSession.sessionId)
+    this.sessionAliases.set(currentSession.sessionId, loadedSessionId)
+    this.rememberIgnoredSessionId(currentSession.sessionId)
+  }
+
+  private resolveSessionId(sessionId: string): string {
+    let currentSessionId = sessionId
+    const visited = new Set<string>()
+
+    while (!visited.has(currentSessionId)) {
+      visited.add(currentSessionId)
+      const aliasTarget = this.sessionAliases.get(currentSessionId)
+      if (!aliasTarget) {
+        return currentSessionId
+      }
+
+      currentSessionId = aliasTarget
+    }
+
+    return currentSessionId
+  }
+
+  private dropSessionAliases(sessionId: string): void {
+    this.sessionAliases.delete(sessionId)
+
+    for (const [alias, target] of [...this.sessionAliases.entries()]) {
+      if (target === sessionId) {
+        this.sessionAliases.delete(alias)
+      }
+    }
   }
 
   private rememberIgnoredSessionId(sessionId: string): void {

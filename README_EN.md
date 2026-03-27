@@ -13,7 +13,7 @@ npx agents-to-wechat start
 
 ## Notes
 
-- Node.js 22 or newer is required
+- Node.js 22.12+ LTS or 24+ is required
 - `codex` must be installed and available on `PATH`
 - The current release is a `0.x` preview
 - Only text messages and WeChat private chats are supported
